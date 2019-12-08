@@ -76,7 +76,6 @@ Parameters:
     Description: Name of the target VPC
     Default: Default
 
-
 Conditions:
   DatabaseSingleAZCondition:
     Fn::Equals:
@@ -88,7 +87,7 @@ Conditions:
       - 1
 
 Resources:
-   MigrateTaskDefinition:
+  MigrateTaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
       NetworkMode: host
@@ -190,7 +189,7 @@ Resources:
       DeploymentConfiguration:
         MaximumPercent: 100
         MinimumHealthyPercent: 0
-   AuditService:
+  AuditService:
     Type: AWS::ECS::Service
     DependsOn:
       - ApplicationAutoscaling
@@ -393,7 +392,7 @@ Resources:
                 Fn::Sub: ${AWS::StackName}/ecs/PortfolioService/portfolio
               awslogs-region:
                 Ref: AWS::Region
-              awslogs-stream-prefix: docker    
+              awslogs-stream-prefix: docker
   DashboardTaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
@@ -402,7 +401,7 @@ Resources:
         - Name: dashboard
           Image: 
             Fn::Sub: ${MicrotraderImage}/microtrader-dashboard:${MicrotraderImageTag}
-        MemoryReservation: 195
+          MemoryReservation: 195
           Memory: 800
           Cpu: 200
           Environment:
@@ -743,7 +742,7 @@ Resources:
         Ref: ApplicationAutoscalingSecurityGroup
       SourceSecurityGroupId:
         Ref: ApplicationLoadBalancerSecurityGroup
-   ApplicationLoadBalancerToMicrotraderQuoteEgress:
+  ApplicationLoadBalancerToMicrotraderQuoteEgress:
     Type: AWS::EC2::SecurityGroupEgress
     Properties:
       IpProtocol: tcp
@@ -851,7 +850,6 @@ Resources:
         - Key: Name
           Value: 
             Fn::Sub: ${AWS::StackName}-ApplicationLoadBalancer
-
   PublicLoadBalancerHttpListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
