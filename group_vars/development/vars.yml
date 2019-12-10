@@ -1,3 +1,6 @@
+# STS role and target account
+Sts.Role: arn:aws:iam::754048514734:role/admin
+
 # Stack settings
 Stack.Name: microtrader-development
 Stack.Description: Microtrader Stack - Development
@@ -9,3 +12,20 @@ AWS::RDS::DBInstance:
 # Override all deletion policies of type AWS::Logs::LogGroup
 AWS::Logs::LogGroup:
   DeletionPolicy: Delete
+
+
+
+# Microtrader settings
+Stack.Inputs.MicrotraderQuoteHttpPort: 8000
+Stack.Inputs.MicrotraderAuditHttpPort: 8001
+Stack.Inputs.MicrotraderDashboardHttpPort: 8002
+
+# Application settings
+Stack.Inputs.ApplicationDnsName: dev-microtrader
+Stack.Inputs.ApplicationImageId: ami-067549cdabfbcc3bd
+Stack.Inputs.ApplicationKeyName: ubuntuHomeDocker
+
+# Database settings
+Stack.Inputs.DatabaseName: audit
+Stack.Inputs.DatabaseUsername: audit
+Stack.Inputs.DatabasePassword: super-secret-password
