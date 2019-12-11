@@ -62,6 +62,9 @@ Parameters:
       - t2.micro
       - t2.small
       - t2.medium
+  MicrotraderDashboardHttpPort:
+    Type: Number
+    Description: Container port for Microtrader Dashboard
   MicrotraderAuditHttpPort:
     Type: Number
     Description: Container port for Microtrader Audit Service
@@ -72,17 +75,131 @@ Parameters:
     Type: String
     Description: Name of the target VPC
     Default: Default
-  MicrotraderDashboardHttpPort:
-    Type: Number
-    Description: Container port for Microtrader Dashboard
+
 
 Conditions:
   DatabaseSingleAZCondition:
     Fn::Equals:
       - Ref: DatabaseMultiAZ
       - "false"
+  ApplicationSingleInstanceCondition:
+    Fn::Equals:
+      - Ref: ApplicationDesiredCount
+      - 1
 
 Resources:
+  DashboardService:
+    Type: AWS::ECS::Service
+    DependsOn:
+      - QuoteService
+      - AuditService
+      - PortfolioService
+      - ApplicationAutoscaling
+      - DashboardServiceLogGroup
+      - PublicLoadBalancerHttpListener
+    Properties:
+      LoadBalancers:
+        - ContainerName: dashboard
+          ContainerPort:
+            Ref: MicrotraderDashboardHttpPort
+          TargetGroupArn:
+            Ref: DashboardServiceTargetGroup
+      Role:
+        Ref: EcsServiceRole
+      TaskDefinition:
+        Ref: DashboardTaskDefinition
+      Cluster:
+        Ref: ApplicationCluster
+      DesiredCount:
+        Ref: ApplicationDesiredCount
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent:
+          Fn::If:
+            - ApplicationSingleInstanceCondition
+            - 0
+            - 50
+  PortfolioService:
+    Type: AWS::ECS::Service
+    DependsOn:
+      - AuditService
+      - ApplicationAutoscaling
+      - PortfolioServiceLogGroup
+    Properties:
+      TaskDefinition:
+        Ref: PortfolioTaskDefinition
+      Cluster:
+        Ref: ApplicationCluster
+      DesiredCount: 1
+      DeploymentConfiguration:
+        MaximumPercent: 100
+        MinimumHealthyPercent: 0
+   AuditService:
+    Type: AWS::ECS::Service
+    DependsOn:
+      - ApplicationAutoscaling
+      - AuditServiceLogGroup
+      - ApplicationLoadBalancerHttpListener
+      - ApplicationDatabase
+    Properties:
+      LoadBalancers:
+        - ContainerName: audit
+          ContainerPort:
+            Ref: MicrotraderAuditHttpPort
+          TargetGroupArn:
+            Ref: AuditServiceTargetGroup
+      Role:
+        Ref: EcsServiceRole
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent:
+          Fn::If:
+            - ApplicationSingleInstanceCondition
+            - 0
+            - 50
+      TaskDefinition:
+        Ref: AuditTaskDefinition
+      Cluster:
+        Ref: ApplicationCluster
+      DesiredCount:
+        Ref: ApplicationDesiredCount
+  EcsServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceRole
+  QuoteService:
+    Type: AWS::ECS::Service
+    DependsOn:
+      - ApplicationAutoscaling
+      - QuoteServiceLogGroup
+      - ApplicationLoadBalancerHttpListener
+    Properties:
+      Role:
+        Ref: EcsServiceRole
+      TaskDefinition:
+        Ref: QuoteTaskDefinition
+      Cluster:
+        Ref: ApplicationCluster
+      DesiredCount: 1
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 0
+        MaximumPercent: 100
+      LoadBalancers:
+        - ContainerName: quote
+          ContainerPort:
+            Ref: MicrotraderQuoteHttpPort
+          TargetGroupArn:
+            Ref: QuoteServiceTargetGroup
   AuditTaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
@@ -95,19 +212,15 @@ Resources:
           Memory: 800
           Cpu: 200
           Environment:
-            - Name: AWS_DEFAULT_REGION
-              Value:
-                Ref: AWS::Region
-            - Name: HTTPS_PROXY
-              Value:
-                Fn::ImportValue:
-                  Fn::Sub: ${VpcName}ProxyUrl
             - Name: JDBC_URL
               Value:
                 Fn::Sub: jdbc:mysql://${ApplicationDatabase.Endpoint.Address}/${DatabaseName}?useSSL=false
             - Name: JDBC_USER
               Value:
                 Ref: DatabaseUsername
+            - Name: JDBC_PASSWORD
+              Value:
+                Ref: DatabasePassword
             - Name: JDBC_DRIVERCLASS
               Value: com.mysql.jdbc.Driver
             - Name: HTTP_PORT
@@ -179,13 +292,6 @@ Resources:
           Memory: 800
           Cpu: 200
           Environment:
-            - Name: HTTPS_PROXY
-              Value:
-                Fn::ImportValue:
-                  Fn::Sub: ${VpcName}ProxyUrl
-            - Name: AWS_DEFAULT_REGION
-              Value:
-                Ref: AWS::Region
             - Name: CLUSTER_GROUP_NAME
               Value:
                 Ref: ApplicationCluster
@@ -243,26 +349,6 @@ Resources:
         MemoryReservation: 195
           Memory: 800
           Cpu: 200
-          Command: 
-            - java
-            - -jar
-            - /app/app.jar
-            - -server
-            - -cluster
-            - -Dvertx.hazelcast.config=/app/conf/cluster.xml
-            - -cluster-port=15702
-          PortMappings:
-            - ContainerPort:
-                Ref: MicrotraderDashboardHttpPort
-            - ContainerPort: 15702
-          LogConfiguration:
-            LogDriver: awslogs
-            Options:
-              awslogs-group:
-                Fn::Sub: ${AWS::StackName}/ecs/DashboardService/dashboard
-              awslogs-region:
-                Ref: AWS::Region
-              awslogs-stream-prefix: docker
           Environment:
             - Name: HTTP_PORT
               Value:
@@ -295,6 +381,26 @@ Resources:
                   " -Dhttp.nonProxyHosts='*.", "Fn::ImportValue": { "Fn::Sub": "${VpcName}VpcDomain" }, 
                   "|169.254.*|localhost|127.*|[::1]'"
                 ] ]
+          Command: 
+            - java
+            - -jar
+            - /app/app.jar
+            - -server
+            - -cluster
+            - -Dvertx.hazelcast.config=/app/conf/cluster.xml
+            - -cluster-port=15702
+          PortMappings:
+            - ContainerPort:
+                Ref: MicrotraderDashboardHttpPort
+            - ContainerPort: 15702
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group:
+                Fn::Sub: ${AWS::StackName}/ecs/DashboardService/dashboard
+              awslogs-region:
+                Ref: AWS::Region
+              awslogs-stream-prefix: docker
   QuoteTaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
@@ -365,7 +471,6 @@ Resources:
                   " -Dhttp.nonProxyHosts='*.", "Fn::ImportValue": { "Fn::Sub": "${VpcName}VpcDomain" }, 
                   "|169.254.*|localhost|127.*|[::1]'"
                 ] ]
-          
   ApplicationCluster:
     Type: AWS::ECS::Cluster
   DashboardServiceLogGroup:
@@ -885,6 +990,40 @@ Resources:
             "    --https-proxy ", "Fn::ImportValue": { "Fn::Sub": "${VpcName}ProxyUrl" },
             "\n",
           ] ]
+  ApplicationAutoscaling:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    DependsOn:
+      - DmesgLogGroup
+      - MessagesLogGroup
+      - DockerLogGroup
+      - EcsInitLogGroup
+      - EcsAgentLogGroup
+    CreationPolicy:
+      ResourceSignal:
+        Count:
+          Ref: ApplicationDesiredCount
+        Timeout: PT15M
+    Properties:
+      LaunchConfigurationName:
+        Ref: ApplicationAutoscalingLaunchConfiguration
+      MinSize: 0
+      MaxSize: 4
+      DesiredCapacity:
+        Ref: ApplicationDesiredCount
+      VPCZoneIdentifier:
+        - Fn::ImportValue:
+            Fn::Sub: ${VpcName}MediumSubnetA    
+        - Fn::ImportValue:
+            Fn::Sub: ${VpcName}MediumSubnetB
+      Tags:
+        - Key: Name
+          Value: 
+            Fn::Sub: ${AWS::StackName}-ApplicationAutoscaling-instance
+          PropagateAtLaunch: "true"
+        - Key: hazelcast:group
+          Value:
+            Ref: ApplicationCluster
+          PropagateAtLaunch: "true"
   MicrotraderClusterDiscoverIngress:
     Type: AWS::EC2::SecurityGroupIngress
     Properties:
@@ -952,40 +1091,7 @@ Resources:
           DestinationSecurityGroupId:
             Fn::ImportValue:
               Fn::Sub: ${VpcName}ProxySecurityGroup
-  ApplicationAutoscaling:
-    Type: AWS::AutoScaling::AutoScalingGroup
-    DependsOn:
-      - DmesgLogGroup
-      - MessagesLogGroup
-      - DockerLogGroup
-      - EcsInitLogGroup
-      - EcsAgentLogGroup
-    CreationPolicy:
-      ResourceSignal:
-        Count:
-          Ref: ApplicationDesiredCount
-        Timeout: PT15M
-    Properties:
-      LaunchConfigurationName:
-        Ref: ApplicationAutoscalingLaunchConfiguration
-      MinSize: 0
-      MaxSize: 4
-      DesiredCapacity:
-        Ref: ApplicationDesiredCount
-      VPCZoneIdentifier:
-        - Fn::ImportValue:
-            Fn::Sub: ${VpcName}MediumSubnetA    
-        - Fn::ImportValue:
-            Fn::Sub: ${VpcName}MediumSubnetB
-      Tags:
-        - Key: Name
-          Value: 
-            Fn::Sub: ${AWS::StackName}-ApplicationAutoscaling-instance
-          PropagateAtLaunch: "true"
-        - Key: hazelcast:group
-          Value:
-            Ref: ApplicationCluster
-          PropagateAtLaunch: "true"
+
 Outputs:
   PublicLoadBalancerUrl:
     Description: Public Load Balancer URL
