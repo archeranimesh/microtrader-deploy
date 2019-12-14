@@ -83,6 +83,69 @@ Conditions:
       - "false"
 
 Resources:
+  DashboardTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      NetworkMode: host
+      ContainerDefinitions:
+        - Name: dashboard
+          Image: 
+            Fn::Sub: ${MicrotraderImage}/microtrader-dashboard:${MicrotraderImageTag}
+        MemoryReservation: 195
+          Memory: 800
+          Cpu: 200
+          Command: 
+            - java
+            - -jar
+            - /app/app.jar
+            - -server
+            - -cluster
+            - -Dvertx.hazelcast.config=/app/conf/cluster.xml
+            - -cluster-port=15702
+          PortMappings:
+            - ContainerPort:
+                Ref: MicrotraderDashboardHttpPort
+            - ContainerPort: 15702
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group:
+                Fn::Sub: ${AWS::StackName}/ecs/DashboardService/dashboard
+              awslogs-region:
+                Ref: AWS::Region
+              awslogs-stream-prefix: docker
+          Environment:
+            - Name: HTTP_PORT
+              Value:
+                Ref: MicrotraderDashboardHttpPort
+            - Name: CLUSTER_GROUP_NAME
+              Value:
+                Ref: ApplicationCluster
+            - Name: CLUSTER_GROUP_PASSWORD
+              Value: super-secret-password
+            - Name: CLUSTER_AWS_ENABLED
+              Value: "true"
+            - Name: CLUSTER_AWS_REGION
+              Value:
+                Ref: AWS::Region
+            - Name: CLUSTER_AWS_IAM_ROLE
+              Value: DEFAULT
+            - Name: CLUSTER_AWS_TAG_KEY
+              Value: hazelcast:group
+            - Name: CLUSTER_AWS_TAG_VALUE
+              Value:
+                Ref: ApplicationCluster
+            - Name: JAVA_TOOL_OPTIONS
+              Value:
+                Fn::Join: ["", [
+                  " -Xmx672m -XX:MaxMetaspaceSize=128m",
+                  " -Dhttp.proxyHost=", "Fn::ImportValue": { "Fn::Sub": "${VpcName}ProxyHost" },
+                  " -Dhttp.proxyPort=3128",
+                  " -Dhttps.proxyHost=", "Fn::ImportValue": { "Fn::Sub": "${VpcName}ProxyHost" },
+                  " -Dhttps.proxyPort=3128",
+                  " -Dhttp.nonProxyHosts='*.", "Fn::ImportValue": { "Fn::Sub": "${VpcName}VpcDomain" }, 
+                  "|169.254.*|localhost|127.*|[::1]'"
+                ] ]
   QuoteTaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
