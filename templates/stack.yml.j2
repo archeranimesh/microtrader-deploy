@@ -28,6 +28,26 @@ Parameters:
 
 
 Resources:
+  PublicLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Scheme: internet-facing
+      Subnets:
+        - Fn::ImportValue:
+            Fn::Sub: ${VpcName}PublicSubnetA
+        - Fn::ImportValue:
+            Fn::Sub: ${VpcName}PublicSubnetB
+      LoadBalancerAttributes:
+        - Key: deletion_protection.enabled
+          Value: "false"
+        - Key: idle_timeout.timeout_seconds
+          Value: 30
+      SecurityGroups:
+        - Ref: PublicLoadBalancerSecurityGroup
+      Tags:
+        - Key: Name
+          Value:
+            Fn::Sub: ${AWS::StackName}-PublicLoadBalancer
   ApplicationAutoscalingInstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
